@@ -3,6 +3,8 @@ import subprocess
 import logging
 import os
 
+import boto3
+
 
 BUCKET_NAME = "lambda-encoder-bucket"
 
@@ -60,10 +62,9 @@ def lambda_handler(event, context):
     input_path = record["input_path"]["S"]
     output_path = record["output_path"]["S"]
 
-    filename = os.path.basename(input_path)
+    file_name = os.path.basename(input_path)
     local_input_path = f"/tmp/{file_name}"
     local_output_path = f"/tmp/encoded_{file_name}"
-    os.makedirs(output_folder, exist_ok=True)
 
     update_status(id_, "encoding")
     s3.download_file(BUCKET_NAME, input_path, local_input_path)

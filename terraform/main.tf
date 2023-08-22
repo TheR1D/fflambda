@@ -6,10 +6,8 @@ provider "aws" {
 resource "aws_dynamodb_table" "ingest_jobs" {
   name         = "ingest_jobs"
   billing_mode = "PAY_PER_REQUEST"
-
   stream_enabled   = true
   stream_view_type = "NEW_IMAGE"
-
   hash_key  = "id"
   range_key = "file_name"
 
@@ -32,6 +30,8 @@ resource "aws_dynamodb_table" "ingest_jobs" {
 resource "aws_dynamodb_table" "chunk_jobs" {
   name         = "chunk_jobs"
   billing_mode = "PAY_PER_REQUEST"
+  stream_enabled   = true
+  stream_view_type = "NEW_IMAGE"
   hash_key     = "id"
 
   attribute {
@@ -138,7 +138,7 @@ resource "aws_iam_role" "lambda_role" {
   })
 }
 
-# Lambda function source code.
+# Ingest encoder lambda function source code.
 data "archive_file" "ingest_lambda_source" {
   type        = "zip"
   source_file = "../lambda/functions/ingest/lambda_function.py"
@@ -166,16 +166,52 @@ resource "aws_lambda_function" "ingest_encoder" {
   }
 }
 
+# Chunk encoder lambda function source code.
+data "archive_file" "chunk_lambda_source" {
+  type        = "zip"
+  source_file = "../lambda/functions/encode/lambda_function.py"
+  output_path = "chunk_lambda_payload.zip"
+}
+
+# Create lambda function to process new inserts in to chunk_jobs.
+resource "aws_lambda_function" "chunk_encoder" {
+  function_name    = "chunk_encoder"
+  handler          = "lambda_function.lambda_handler"
+  runtime          = "python3.10"
+  filename         = "chunk_lambda_payload.zip"
+  timeout          = 500
+  memory_size      = 3008
+  architectures    = ["arm64"]
+  source_code_hash = data.archive_file.chunk_lambda_source.output_base64sha256
+  role = aws_iam_role.lambda_role.arn
+
+  layers = [
+    aws_lambda_layer_version.lambda_encoding_layer.arn
+  ]
+
+  ephemeral_storage {
+    size = 512
+  }
+}
+
 # Add DB full access arn to lambda role.
 resource "aws_iam_role_policy_attachment" "policy_lambda_dynamodb" {
   role       = aws_iam_role.lambda_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
 }
 
-# Attach lambda function as a trigger to DynamoDB.
-resource "aws_lambda_event_source_mapping" "trigger_encoder" {
+# Attach ingest lambda function as a trigger to DynamoDB.
+resource "aws_lambda_event_source_mapping" "trigger_ingest_encoder" {
   event_source_arn  = aws_dynamodb_table.ingest_jobs.stream_arn
   function_name     = aws_lambda_function.ingest_encoder.function_name
+  batch_size        = 1
+  starting_position = "LATEST"
+}
+
+# Attach chunk lambda function as a trigger to DynamoDB.
+resource "aws_lambda_event_source_mapping" "trigger_chunk_encoder" {
+  event_source_arn  = aws_dynamodb_table.chunk_jobs.stream_arn
+  function_name     = aws_lambda_function.chunk_encoder.function_name
   batch_size        = 1
   starting_position = "LATEST"
 }
