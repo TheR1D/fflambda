@@ -4,7 +4,7 @@ provider "aws" {
 
 # Create ingest jobs table for input videos.
 resource "aws_dynamodb_table" "ingest_jobs" {
-  name         = "ingest-jobs-table"
+  name         = "ingest_jobs"
   billing_mode = "PAY_PER_REQUEST"
 
   stream_enabled   = true
@@ -30,7 +30,7 @@ resource "aws_dynamodb_table" "ingest_jobs" {
 
 # Create chunking jobs table for output chunks.
 resource "aws_dynamodb_table" "chunk_jobs" {
-  name         = "chunk-jobs-table"
+  name         = "chunk_jobs"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
@@ -160,6 +160,10 @@ resource "aws_lambda_function" "ingest_encoder" {
   layers = [
     aws_lambda_layer_version.lambda_encoding_layer.arn
   ]
+
+  ephemeral_storage {
+    size = 1024
+  }
 }
 
 # Add DB full access arn to lambda role.

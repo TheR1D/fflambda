@@ -1,23 +1,74 @@
 import json
 import subprocess
 import logging
+import os
 
 
-logger = logging.getLogger("lambda_encoder")
+BUCKET_NAME = "lambda-encoder-bucket"
+
+logger = logging.getLogger("chunk_encoder")
 logger.setLevel(logging.INFO)
+
+dynamodb = boto3.resource("dynamodb")
+chunk_jobs = dynamodb.Table("chunk_jobs")
+s3 = boto3.client("s3")
+
+
+def response(status_code, body):
+    return {"statusCode": status_code, "body": body}
+
+
+def update_status(id_, status):
+    chunk_jobs.update_item(
+        Key={"id": id_},
+        UpdateExpression="SET #s = :val",
+        ExpressionAttributeNames={ "#s": "status" },
+        ExpressionAttributeValues={ ":val": status }
+    )
+
+
+def encode_video(input_path, output_path):
+    # ffmpeg -i video.mp4 -c:v libx265 -b:v 500k output.mp4
+    try:
+        subprocess.run(
+            [
+                "/opt/ffmpeg",
+                "-i", input_path,
+                "-c:v", "libx265",
+                "-b:v", "500k",
+                output_path
+            ],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error(f"ffmpeg call failed with error: {e}")
+        return False
 
 
 def lambda_handler(event, context):
     logger.info(f"Received event: {event}, context: {context}")
-    # try:
-    #     ffmpeg_version = subprocess.run(['/opt/ffmpeg', '-version'], capture_output=True, text=True, check=True)
-    #     logger.info(f"ffmpeg version: {ffmpeg_version.stdout}")
-    # except subprocess.CalledProcessError as e:
-    #     logger.error(f"Command failed with error: {e}")
-    # except FileNotFoundError:
-    #     logger.error("ffmpeg is not installed or not found in /opt/ffmpeg.")
-    #
-    return {
-        'statusCode': 200,
-        'body': json.dumps(f"Hello from Lambda!")
-    }
+
+    record = event["Records"][0]["dynamodb"]["NewImage"]
+    if record["status"]["S"] != "new":
+        return response(400, "Record status must be \"new\"")
+
+    id_ = record["id"]["S"]
+    ingest_job = record["ingest_job"]["S"]
+    input_path = record["input_path"]["S"]
+    output_path = record["output_path"]["S"]
+
+    filename = os.path.basename(input_path)
+    local_input_path = f"/tmp/{file_name}"
+    local_output_path = f"/tmp/encoded_{file_name}"
+    os.makedirs(output_folder, exist_ok=True)
+
+    update_status(id_, "encoding")
+    s3.download_file(BUCKET_NAME, input_path, local_input_path)
+    encode_video(local_input_path, local_output_path)
+    s3.upload_file(local_output_path, BUCKET_NAME, output_path)
+    update_status(id_, "encoded")
+
+    return response(200, "OK")
