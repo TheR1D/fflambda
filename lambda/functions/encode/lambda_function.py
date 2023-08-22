@@ -36,7 +36,7 @@ def encode_video(input_path, output_path):
             [
                 "/opt/ffmpeg",
                 "-i", input_path,
-                "-c:v", "libx265",
+                "-c:v", "libx264",
                 "-b:v", "500k",
                 output_path
             ],
