@@ -54,11 +54,7 @@ def lambda_handler(event, context):
     logger.info(f"Received event: {event}, context: {context}")
 
     record = event["Records"][0]["dynamodb"]["NewImage"]
-    if record["status"]["S"] != "new":
-        return response(400, "Record status must be \"new\"")
-
     id_ = record["id"]["S"]
-    ingest_job = record["ingest_job"]["S"]
     input_path = record["input_path"]["S"]
     output_path = record["output_path"]["S"]
 

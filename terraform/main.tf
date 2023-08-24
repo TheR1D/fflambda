@@ -2,25 +2,6 @@ provider "aws" {
   region = "eu-west-1"
 }
 
-# Create ingest jobs table for input videos.
-resource "aws_dynamodb_table" "ingest_jobs" {
-  name = "ingest_jobs"
-  billing_mode = "PAY_PER_REQUEST"
-  stream_enabled = true
-  stream_view_type = "NEW_IMAGE"
-  hash_key  = "id"
-  range_key = "file_name"
-
-  attribute {
-    name = "id"
-    type = "S"
-  }
-  attribute {
-    name = "file_name"
-    type = "S"
-  }
-}
-
 # Create chunking jobs table for output chunks.
 resource "aws_dynamodb_table" "chunk_jobs" {
   name = "chunk_jobs"
@@ -33,26 +14,29 @@ resource "aws_dynamodb_table" "chunk_jobs" {
     name = "id"
     type = "S"
   }
-  attribute {
-    name = "ingest_job"
-    type = "S"
-  }
-
-  global_secondary_index {
-    name = "ingest_job_index"
-    hash_key = "ingest_job"
-    projection_type = "ALL"
-  }
 }
 
-# Create S3 bucket for input and output video files.
+# Create S3 bucket for input video files.
+resource "aws_s3_bucket" "ingestor_bucket" {
+  bucket = "lambda-ingestor-bucket"
+}
+
+resource "aws_lambda_permission" "allow_s3_lambda_execution" {
+  statement_id  = "AllowExecutionFromS3IngestorBucket"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.ingest_encoder.arn
+  principal     = "s3.amazonaws.com"
+  source_arn    = aws_s3_bucket.ingestor_bucket.arn
+}
+
+# Create S3 bucket for chunks and output video files.
 resource "aws_s3_bucket" "encoder_bucket" {
   bucket = "lambda-encoder-bucket"
 }
 
 resource "aws_iam_policy" "s3_encoder_crud_access_policy" {
   name = "s3_encoder_crud_access_policy"
-  description = "S3 CRUD ac"
+  description = "S3 CRUD actions"
 
   policy = jsonencode({
     Version = "2012-10-17",
@@ -67,7 +51,9 @@ resource "aws_iam_policy" "s3_encoder_crud_access_policy" {
         Effect = "Allow",
         Resource = [
           aws_s3_bucket.encoder_bucket.arn,
-          "${aws_s3_bucket.encoder_bucket.arn}/*"
+          "${aws_s3_bucket.encoder_bucket.arn}/*",
+          aws_s3_bucket.ingestor_bucket.arn,
+          "${aws_s3_bucket.ingestor_bucket.arn}/*",
         ]
       }
     ]
@@ -170,18 +156,17 @@ resource "aws_iam_role_policy_attachment" "policy_lambda_dynamodb" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
 }
 
-# Attach ingest lambda function as a trigger to DynamoDB.
-resource "aws_lambda_event_source_mapping" "trigger_ingest_encoder" {
-  event_source_arn = aws_dynamodb_table.ingest_jobs.stream_arn
-  function_name = aws_lambda_function.ingest_encoder.function_name
-  batch_size = 1
-  starting_position = "LATEST"
+# Attach ingest lambda function as a trigger to ingest s3 bucket.
+resource "aws_s3_bucket_notification" "s3_ingest_event" {
+  bucket = aws_s3_bucket.ingestor_bucket.id
 
-  filter_criteria {
-    filter {
-      pattern = jsonencode({eventName = ["INSERT"]})
-    }
+  lambda_function {
+    lambda_function_arn = aws_lambda_function.ingest_encoder.arn
+    events = ["s3:ObjectCreated:*"]
+    filter_suffix = ".mp4"
   }
+
+  depends_on = [aws_lambda_permission.allow_s3_lambda_execution]
 }
 
 # Attach chunk lambda function as a trigger to DynamoDB.
@@ -189,6 +174,7 @@ resource "aws_lambda_event_source_mapping" "trigger_chunk_encoder" {
   event_source_arn = aws_dynamodb_table.chunk_jobs.stream_arn
   function_name = aws_lambda_function.chunk_encoder.function_name
   batch_size = 1
+  parallelization_factor = 10
   starting_position = "LATEST"
 
   filter_criteria {
