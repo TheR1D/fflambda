@@ -30,7 +30,6 @@ def update_status(id_, status):
 
 
 def encode_video(input_path, output_path):
-    # ffmpeg -i video.mp4 -c:v libx265 -b:v 500k output.mp4
     try:
         subprocess.run(
             [
@@ -44,10 +43,8 @@ def encode_video(input_path, output_path):
             text=True,
             check=True
         )
-        return True
     except subprocess.CalledProcessError as e:
         logger.error(f"ffmpeg call failed with error: {e}")
-        return False
 
 
 def lambda_handler(event, context):

@@ -40,11 +40,8 @@ def chunk_video(input_path, output_folder, file_name):
             text=True,
             check=True
         )
-        # os.system(f"python /opt/chunk.py {input_path} {SEGMENT_TIME} {output_path}")
-        return True
     except subprocess.CalledProcessError as e:
         logger.error(f"ffmpeg call failed with error: {e}")
-        return False
 
 
 def create_encoding_job(input_path, output_path):
@@ -73,7 +70,7 @@ def lambda_handler(event, context):
     # Download mezanine from S3 bucket.
     s3.download_file(bucket, s3_key, local_path)
     # Split video into multiple chunks using ffmpeg.
-    success = chunk_video(local_path, output_folder, file_name)
+    chunk_video(local_path, output_folder, file_name)
 
     # Upload chunks to S3 and create encoding jobs.
     for file in [file for file in os.listdir(output_folder)]:
