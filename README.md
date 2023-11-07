@@ -14,3 +14,5 @@ This will create a new lambda functions and all required resources.
 
 ## Trigger encoding
 In order to trigger encoding you need to upload a video file to the `lambda-ingestor-bucket` s3 bucket. The lambda function will be triggered automatically and will start ingestor job (lambda function). The ingestor lambda function will split video into multiple chunks and create corresponding database records to track encoding progress. Each new record inserts into `chunk_jobs` table in DynamoDB will trigger a new lambda function (encoder) which will encode the chunk and upload it to the `lambda-encoder-bucket` s3 bucket. The last encoding lambda job will call another lambda function "mux" which will merge all chunks into a single video file (including audio) and upload it to the `lambda-encoder-bucket/encoded` s3 bucket. 
+
+Note that the lambda functions running on ARM based hardware which makes it super cheap.
