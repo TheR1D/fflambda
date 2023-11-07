@@ -1,7 +1,7 @@
 # FFLambda
 AWS Lambda encoder based on FFmpeg. The idea behind this project is to utilise AWS lambda functions in order to encode videos fast and in scalable way. This project is not production ready, it's just a proof of concept.
 
-![fflambda](https://github.com/TheR1D/fflambda/assets/16740832/49b3826a-a373-443e-81b5-116dbd427b52)
+![fflambda](https://github.com/TheR1D/fflambda/assets/16740832/3a53a50f-52c7-4f82-8329-e62052594f53)
 
 ## Deployment
 Deploy it using Terraform:
