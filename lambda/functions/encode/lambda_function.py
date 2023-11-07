@@ -47,6 +47,26 @@ def encode_video(input_path, output_path):
         logger.error(f"ffmpeg call failed with error: {e}")
 
 
+def all_chunks_encoded(video_id):
+    # This should be optimised (check it on query level).
+    result = chunk_jobs.query(
+        IndexName="video_id-index",
+        KeyConditionExpression=boto3.dynamodb.conditions.Key('video_id').eq(video_id)
+    )
+    items = result.get("Items", [])
+    return all(item.get("status") == "encoded" for item in items)
+
+
+def call_muxer(video_id):
+    logger.info("All chunks encoded, calling muxer")
+    lambda_client = boto3.client("lambda")
+    lambda_client.invoke(
+        FunctionName="mux_encoder",
+        InvocationType="Event",
+        Payload=json.dumps({"video_id": video_id})
+    )
+
+
 def lambda_handler(event, context):
     logger.info(f"Received event: {event}, context: {context}")
 
@@ -54,6 +74,7 @@ def lambda_handler(event, context):
     id_ = record["id"]["S"]
     input_path = record["input_path"]["S"]
     output_path = record["output_path"]["S"]
+    video_id = record["video_id"]["S"]
 
     file_name = os.path.basename(input_path)
     local_input_path = f"/tmp/{file_name}"
@@ -64,5 +85,8 @@ def lambda_handler(event, context):
     encode_video(local_input_path, local_output_path)
     s3.upload_file(local_output_path, BUCKET_NAME, output_path)
     update_status(id_, "encoded")
+
+    if all_chunks_encoded(video_id):
+        call_muxer(video_id)
 
     return response(200, "OK")

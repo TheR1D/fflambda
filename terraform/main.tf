@@ -2,6 +2,9 @@ provider "aws" {
   region = "eu-west-1"
 }
 
+# Fetch the current account details
+data "aws_caller_identity" "current" {}
+
 # Create chunking jobs table for output chunks.
 resource "aws_dynamodb_table" "chunk_jobs" {
   name = "chunk_jobs"
@@ -13,6 +16,17 @@ resource "aws_dynamodb_table" "chunk_jobs" {
   attribute {
     name = "id"
     type = "S"
+  }
+
+  attribute {
+    name = "video_id"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name               = "video_id-index"
+    hash_key           = "video_id"
+    projection_type    = "ALL"
   }
 }
 
@@ -149,6 +163,60 @@ resource "aws_lambda_function" "chunk_encoder" {
     size = 512
   }
 }
+
+# Mux encoder lambda function source code.
+data "archive_file" "mux_lambda_source" {
+  type = "zip"
+  source_file = "../lambda/functions/mux/lambda_function.py"
+  output_path = "mux_lambda_payload.zip"
+}
+
+# Create lambda function to process mux of the chunks.
+resource "aws_lambda_function" "mux_encoder" {
+  function_name = "mux_encoder"
+  handler = "lambda_function.lambda_handler"
+  runtime = "python3.10"
+  filename = "mux_lambda_payload.zip"
+  timeout = 500
+  memory_size = 3008
+  architectures = ["arm64"]
+  source_code_hash = data.archive_file.mux_lambda_source.output_base64sha256
+  role = aws_iam_role.lambda_role.arn
+
+  layers = [
+    aws_lambda_layer_version.lambda_encoding_layer.arn
+  ]
+
+  ephemeral_storage {
+    size = 1024
+  }
+}
+
+# Define the IAM policy that allows invocation of another Lambda function
+resource "aws_iam_policy" "lambda_invoke_policy" {
+  name        = "lambda_invoke_policy"
+  description = "Policy that allows a lambda function to invoke another lambda function"
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = [
+          "lambda:InvokeFunction",
+        ],
+        Resource = "arn:aws:lambda:eu-west-1:${data.aws_caller_identity.current.account_id}:function:mux_encoder"
+      },
+    ]
+  })
+}
+
+# Attach the policy to the lambda_role
+resource "aws_iam_role_policy_attachment" "lambda_invoke_policy" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = aws_iam_policy.lambda_invoke_policy.arn
+}
+
 
 # Add DB full access arn to lambda role.
 resource "aws_iam_role_policy_attachment" "policy_lambda_dynamodb" {
